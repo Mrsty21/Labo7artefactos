@@ -1,146 +1,131 @@
-  #include <SPI.h>
-  #include <LoRa.h>
+#include <SPI.h>
+#include <LoRa.h>
 
-  // ======================================================
-  // IDENTIFICACION
-  // ======================================================
+// ======================================================
+// IDENTIFICACION
+// ======================================================
+const int MI_ID = 5;
+const int DESTINO_ID = 6;
 
-  const int MI_ID = 1;
-  const int DESTINO_ID = 2;
+// Cambia este texto por el mensaje que desees enviar
+String mensajeOriginal = "HOLA MUNDO LORA";
 
-  String mensajeOriginal = "SISTEMAS EMBEBIDOS";
+// ======================================================
+// PINES LORA RFM96W (SPI)
+// ======================================================
+#define LORA_SCK   18
+#define LORA_MISO  19
+#define LORA_MOSI  23
+#define LORA_NSS   5
+#define LORA_RST   -1
+#define LORA_DIO0  -1
 
-  // ======================================================
-  // PINES Y CONFIGURACIÓN HARDWARE
-  // ======================================================
+// ======================================================
+// SENSOR TOUCH (D4 = GPIO 4 = Touch0)
+// ======================================================
+#define PIN_TOUCH     4
+#define UMBRAL_TOUCH  30
+bool tocadoAnterior = false; // Bandera para evitar envíos continuos
 
-  // Pines SPI para el módulo LoRa RFM96W
-  #define SCK_PIN   18
-  #define MISO_PIN  19
-  #define MOSI_PIN  23
-  #define SS_PIN     5   // NSS
+// ======================================================
+// ATBASH
+// ======================================================
+char convertirAtbash(char letra) {
+  if (letra >= 'A' && letra <= 'Z') {
+    return 'Z' - (letra - 'A');
+  }
+  if (letra >= 'a' && letra <= 'z') {
+    return 'z' - (letra - 'a');
+  }
+  return letra;
+}
 
-  // Pin del sensor Capacitivo Touch y Umbral
-  #define TOUCH_PIN    27
-  #define TOUCH_UMBRAL 30  // Ajustable según la sensibilidad de tu placa
+String cifrarAtbash(String mensaje) {
+  String mensajeCifrado = "";
+  for (int i = 0; i < mensaje.length(); i++) {
+    mensajeCifrado += convertirAtbash(mensaje.charAt(i));
+  }
+  return mensajeCifrado;
+}
 
-  // Variable para controlar el estado del toque y evitar múltiples envíos seguidos
-  bool presionado = false;
+// ======================================================
+// ENVIAR MENSAJE
+// ======================================================
+void enviarMensaje() {
+  String mensajeCifrado = cifrarAtbash(mensajeOriginal);
 
-  // ======================================================
-  // ATBASH
-  // ======================================================
+  Serial.println();
+  Serial.println("TOUCH DETECTADO");
 
-  char convertirAtbash(char letra) {
+  Serial.print("Mensaje original: ");
+  Serial.println(mensajeOriginal);
 
-    if (letra >= 'A' && letra <= 'Z') {
-      return 'Z' - (letra - 'A');
-    }
+  Serial.print("Mensaje cifrado: ");
+  Serial.println(mensajeCifrado);
 
-    if (letra >= 'a' && letra <= 'z') {
-      return 'z' - (letra - 'a');
-    }
+  // Formato del paquete: ORIGEN|DESTINO|MENSAJE
+  LoRa.beginPacket();
+  LoRa.print(MI_ID);
+  LoRa.print("|");
+  LoRa.print(DESTINO_ID);
+  LoRa.print("|");
+  LoRa.print(mensajeCifrado);
+  LoRa.endPacket();
 
-    return letra;
+  Serial.print("Paquete enviado: ");
+  Serial.print(MI_ID);
+  Serial.print("|");
+  Serial.print(DESTINO_ID);
+  Serial.print("|");
+  Serial.println(mensajeCifrado);
+
+  Serial.println("----------------------------");
+}
+
+// ======================================================
+// SETUP
+// ======================================================
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  Serial.println("--- TRANSMISOR LORA ---");
+  Serial.print("Mi ID: ");
+  Serial.println(MI_ID);
+  Serial.print("Destino: ");
+  Serial.println(DESTINO_ID);
+
+  // Inicializar bus SPI con pines personalizados
+  SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_NSS);
+
+  // Configurar pines para la librería LoRa (NSS, RST, DIO0)
+  LoRa.setPins(LORA_NSS, LORA_RST, LORA_DIO0);
+
+  // Inicializar módulo en 433 MHz
+  if (!LoRa.begin(433E6)) {
+    Serial.println("ERROR: No se pudo iniciar LoRa. Revisa conexiones.");
+    while (true);
   }
 
-  String cifrarAtbash(String mensaje) {
+  Serial.println("LoRa iniciado correctamente a 433 MHz");
+  Serial.println("Esperando toque en D4...");
+}
 
-    String mensajeCifrado = "";
+// ======================================================
+// LOOP
+// ======================================================
+void loop() {
+  int valorTouch = touchRead(PIN_TOUCH);
 
-    for (int i = 0; i < mensaje.length(); i++) {
-      mensajeCifrado += convertirAtbash(mensaje.charAt(i));
-    }
+  // Comprueba si el pin está siendo presionado
+  bool tocadoActual = (valorTouch < UMBRAL_TOUCH);
 
-    return mensajeCifrado;
+  // Detección por flanco de subida (solo al tocar por primera vez)
+  if (tocadoActual && !tocadoAnterior) {
+    enviarMensaje();
   }
 
-  // ======================================================
-  // ENVIAR MENSAJE
-  // ======================================================
+  tocadoAnterior = tocadoActual;
 
-  void enviarMensaje() {
-
-    String mensajeCifrado = cifrarAtbash(mensajeOriginal);
-
-    Serial.println();
-    Serial.println("TOUCH DETECTADO");
-
-    Serial.print("Mensaje original: ");
-    Serial.println(mensajeOriginal);
-
-    Serial.print("Mensaje cifrado: ");
-    Serial.println(mensajeCifrado);
-
-    // Formato del paquete: ORIGEN|DESTINO|MENSAJE
-    LoRa.beginPacket();
-    LoRa.print(MI_ID);
-    LoRa.print("|");
-    LoRa.print(DESTINO_ID);
-    LoRa.print("|");
-    LoRa.print(mensajeCifrado);
-    LoRa.endPacket();
-
-    Serial.print("Paquete enviado: ");
-    Serial.print(MI_ID);
-    Serial.print("|");
-    Serial.print(DESTINO_ID);
-    Serial.print("|");
-    Serial.println(mensajeCifrado);
-
-    Serial.println("----------------------------");
-  }
-
-  // ======================================================
-  // SETUP
-  // ======================================================
-
-  void setup() {
-
-    Serial.begin(115200);
-    delay(1000);
-
-    Serial.println("TRANSMISOR LORA");
-
-    Serial.print("Mi ID: ");
-    Serial.println(MI_ID);
-
-    Serial.print("Destino: ");
-    Serial.println(DESTINO_ID);
-
-    // Iniciar bus SPI asignando los pines explícitos (SCK, MISO, MOSI, SS)
-    SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, SS_PIN);
-
-    LoRa.setPins(SS_PIN, -1, -1);
-
-    // Inicializar radio a 433 MHz
-    if (!LoRa.begin(433E6)) {
-      Serial.println("ERROR: No se pudo iniciar LoRa");
-      while (true);
-    }
-
-    Serial.println("LoRa iniciado correctamente");
-    Serial.println("Esperando toque en GPIO 27...");
-  }
-
-  // ======================================================
-  // LOOP
-  // ======================================================
-
-  void loop() {
-
-    // Leer el valor capacitivo del sensor Touch en GPIO 27
-    int valorTouch = touchRead(TOUCH_PIN);
-
-    // Si el valor cae por debajo del umbral, se detectó un toque
-    if (valorTouch < TOUCH_UMBRAL) {
-      if (!presionado) {
-        enviarMensaje();   // Transmitir mensaje
-        presionado = true; // Bloquear nuevos envíos mientras se siga tocando
-      }
-    } else {
-      presionado = false;  // Resetear la bandera cuando se suelta el sensor
-    }
-
-    delay(50);
-  }
+  delay(50);
+}
